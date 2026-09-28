@@ -13,31 +13,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Descargar código fuente del repositorio
+      - name: Descargar código del repositorio
         uses: actions/checkout@v4
 
-      - name: Descomprimir archivos ZIP (soporta 1 o múltiples partes)
+      - name: Descomprimir archivos ZIP del proyecto
         run: |
-          echo "=== Verificando archivos en el repositorio ==="
+          echo "=== Verificando archivos subidos ==="
           ls -la
 
-          # Descomprimir todos los archivos .zip encontrados (Parte 1, Parte 2, Parte 3, etc.)
-          for zip_file in $(find . -maxdepth 2 -name "*.zip"); do
-            echo "-> Descomprimiendo: $zip_file"
-            unzip -o "$zip_file"
+          # Descomprimir todos los archivos ZIP encontrados
+          for z in $(find . -maxdepth 2 -name "*.zip"); do
+            echo "-> Descomprimiendo: $z"
+            unzip -o "$z"
           done
 
-          # Si build.gradle.kts quedó en una subcarpeta
-          if [ ! -f "build.gradle.kts" ]; then
-            FOUND_BUILD=$(find . -name "build.gradle.kts" -not -path "*/app/*" | head -n 1)
-            if [ -n "$FOUND_BUILD" ]; then
-              DIR_CONTAINING=$(dirname "$FOUND_BUILD")
-              echo "Moviendo archivos desde $DIR_CONTAINING a la raíz..."
-              cp -r "$DIR_CONTAINING"/* .
+          # Si settings.gradle.kts quedó en una subcarpeta
+          if [ ! -f "settings.gradle.kts" ]; then
+            FOUND_SETTINGS=$(find . -name "settings.gradle.kts" | head -n 1)
+            if [ -n "$FOUND_SETTINGS" ]; then
+              TARGET_DIR=$(dirname "$FOUND_SETTINGS")
+              echo "Moviendo archivos desde $TARGET_DIR a la raíz..."
+              cp -rn "$TARGET_DIR"/* . || true
             fi
           fi
 
-          echo "=== Estructura del proyecto tras descompresión ==="
+          # Crear archivos auxiliares necesarios
+          mkdir -p app
+          touch app/proguard-rules.pro
+
+          echo "=== Estructura lista para compilación ==="
           ls -la
 
       - name: Configurar Java 17 (Temurin)
@@ -45,33 +49,25 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
 
-      - name: Preparar Gradle Wrapper
+      - name: Instalar y configurar Gradle 8.4 Oficial
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
+
+      - name: Aceptar licencias de Android SDK
         run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-          else
-            echo "Generando Gradle Wrapper..."
-            sudo apt-get update && sudo apt-get install -y gradle
-            gradle wrapper --gradle-version 8.4
-            chmod +x ./gradlew
-          fi
-          find . -name "gradlew" -exec chmod +x {} \;
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
       - name: Compilar APK con Gradle
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --stacktrace --no-daemon
-          else
-            gradle assembleDebug --stacktrace --no-daemon
-          fi
+          gradle assembleDebug --stacktrace --no-daemon
 
       - name: Localizar APK generado
         run: |
           mkdir -p apk_output
           find . -name "*.apk" -type f -exec cp {} apk_output/MiNegocioAdmin.apk \;
-          echo "=== Archivo APK preparado para descarga ==="
+          echo "=== APK listo para descarga ==="
           ls -lh apk_output/
 
       - name: Subir APK a Artefactos de GitHub
