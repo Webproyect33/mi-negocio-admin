@@ -1,0 +1,82 @@
+name: Compilar APK Android
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Generar APK Debug
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar código fuente del repositorio
+        uses: actions/checkout@v4
+
+      - name: Descomprimir archivos ZIP (soporta 1 o múltiples partes)
+        run: |
+          echo "=== Verificando archivos en el repositorio ==="
+          ls -la
+
+          # Descomprimir todos los archivos .zip encontrados (Parte 1, Parte 2, Parte 3, etc.)
+          for zip_file in $(find . -maxdepth 2 -name "*.zip"); do
+            echo "-> Descomprimiendo: $zip_file"
+            unzip -o "$zip_file"
+          done
+
+          # Si build.gradle.kts quedó en una subcarpeta
+          if [ ! -f "build.gradle.kts" ]; then
+            FOUND_BUILD=$(find . -name "build.gradle.kts" -not -path "*/app/*" | head -n 1)
+            if [ -n "$FOUND_BUILD" ]; then
+              DIR_CONTAINING=$(dirname "$FOUND_BUILD")
+              echo "Moviendo archivos desde $DIR_CONTAINING a la raíz..."
+              cp -r "$DIR_CONTAINING"/* .
+            fi
+          fi
+
+          echo "=== Estructura del proyecto tras descompresión ==="
+          ls -la
+
+      - name: Configurar Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Preparar Gradle Wrapper
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          else
+            echo "Generando Gradle Wrapper..."
+            sudo apt-get update && sudo apt-get install -y gradle
+            gradle wrapper --gradle-version 8.4
+            chmod +x ./gradlew
+          fi
+          find . -name "gradlew" -exec chmod +x {} \;
+
+      - name: Compilar APK con Gradle
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug --stacktrace --no-daemon
+          else
+            gradle assembleDebug --stacktrace --no-daemon
+          fi
+
+      - name: Localizar APK generado
+        run: |
+          mkdir -p apk_output
+          find . -name "*.apk" -type f -exec cp {} apk_output/MiNegocioAdmin.apk \;
+          echo "=== Archivo APK preparado para descarga ==="
+          ls -lh apk_output/
+
+      - name: Subir APK a Artefactos de GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiNegocioAdmin-APK
+          path: apk_output/MiNegocioAdmin.apk
+          retention-days: 30
